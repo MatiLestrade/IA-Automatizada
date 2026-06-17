@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────
+# Python (backend — Modulo4)
+# ─────────────────────────────────────────────
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Variables de entorno (usar env.example como plantilla)
+.env
+.env.*
+!.env.example
+!env.example
+
+# ─────────────────────────────────────────────
+# Node / Next.js (frontend — Modulo5/devflow-frontend)
+# ─────────────────────────────────────────────
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Variables de entorno del frontend
+.env.local
+.env.development.local
+.env.production.local
+
+# ─────────────────────────────────────────────
+# Logs y temporales
+# ─────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─────────────────────────────────────────────
+# Editores / IDEs / OS
+# ─────────────────────────────────────────────
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
