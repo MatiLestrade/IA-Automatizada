@@ -22,18 +22,22 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+import ai_agent
 import github_client
 from database import get_db
 from models import (
     Client, PriorityEnum, PRIORITY_ESCALATION,
-    StatusEnum, Ticket
+    StatusEnum, TicketTypeEnum, Ticket
 )
 from routers.auth import get_current_user, require_admin
 from schemas import (
-    ApproveRejectRequest, PoolReorderRequest,
+    AnalyzeRequest, ApproveRejectRequest, PoolReorderRequest,
     TicketCreate, TicketOut, TicketOutClient, TicketUpdate
 )
 from models import User
+
+# Prioridades que SIEMPRE requieren aprobación manual, incluso en modo AUTO
+AUTO_REQUIRES_APPROVAL = (PriorityEnum.HIGH, PriorityEnum.CRITICAL)
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -138,6 +142,86 @@ def create_ticket(
         status      = StatusEnum.received,
     )
     db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
+    return _serialize(ticket, current_user.role)
+
+
+# ─────────────────────────────────────────────
+# POST /tickets/{id}/analyze
+# Corre el agente IA en el backend (antes corría en el browser).
+# ─────────────────────────────────────────────
+@router.post("/{ticket_id}/analyze")
+def analyze_ticket(
+    ticket_id:    str,
+    body:         AnalyzeRequest,
+    db:           Session = Depends(get_db),
+    current_user: User    = Depends(get_current_user),
+):
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+
+    # El cliente solo puede analizar sus propios tickets
+    if current_user.role == "client" and ticket.client_id != current_user.client_id:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    # Marcar como analizando
+    ticket.status          = StatusEnum.analyzing
+    ticket.step_checkpoint = "analyzing"
+    ticket.updated_at      = datetime.now(timezone.utc)
+    db.commit()
+
+    # Traer el contenido de la página (server-side) y correr el análisis
+    page_text, page_fetched = ai_agent.fetch_page_text(ticket.page)
+    try:
+        result = ai_agent.analyze(
+            ticket_id=ticket.id,
+            title=ticket.title,
+            description=ticket.description,
+            page=ticket.page,
+            page_name=ticket.page_name,
+            admin_prompt=body.admin_prompt,
+            page_content=page_text,
+        )
+    except Exception as exc:  # noqa: BLE001 — degradar a 'received' sin romper
+        print(f"[ai] análisis falló para {ticket.id}: {exc}")
+        ticket.status          = StatusEnum.received
+        ticket.ai_error        = "No se pudo analizar el ticket. Revisá ANTHROPIC_API_KEY en el backend."
+        ticket.step_checkpoint = "error"
+        ticket.updated_at      = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(ticket)
+        return _serialize(ticket, current_user.role)
+
+    # Parsear prioridad / tipo de forma tolerante (la IA podría devolver algo raro)
+    try:
+        ai_priority = PriorityEnum(result.get("priority"))
+    except ValueError:
+        ai_priority = PriorityEnum.MEDIUM
+    try:
+        ai_type = TicketTypeEnum(result.get("type"))
+    except ValueError:
+        ai_type = None
+
+    # Siguiente estado según modo AUTO + prioridad
+    requires_approval = (not body.auto_mode) or (ai_priority in AUTO_REQUIRES_APPROVAL)
+    next_status = StatusEnum.approval if requires_approval else StatusEnum.queued
+
+    ticket.type           = ai_type
+    if ticket.priority is None:           # respetar la prioridad elegida por el usuario
+        ticket.priority = ai_priority
+    ticket.eta            = result.get("eta")
+    ticket.ai_suggestion  = result.get("aiSuggestion")
+    ticket.page_analysis  = result.get("pageAnalysis") or ""
+    ticket.code_hints     = result.get("codeHints") or []
+    ticket.page_fetched   = page_fetched
+    ticket.auto_executed  = not requires_approval
+    ticket.status         = next_status
+    ticket.ai_error       = None
+    ticket.step_checkpoint = "completed"
+    ticket.updated_at     = datetime.now(timezone.utc)
+
     db.commit()
     db.refresh(ticket)
     return _serialize(ticket, current_user.role)

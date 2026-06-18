@@ -20,6 +20,7 @@ interface UseTicketsReturn {
   error: string | null;
   refresh: () => Promise<void>;
   createTicket: (payload: CreateTicketPayload) => Promise<AnyTicket>;
+  analyzeTicket: (id: string, opts: { autoMode: boolean; adminPrompt: string }) => Promise<AnyTicket>;
   updateTicket: (id: string, payload: UpdateTicketPayload) => Promise<AnyTicket>;
   approveTicket: (id: string) => Promise<AnyTicket>;
   rejectTicket: (id: string) => Promise<AnyTicket>;
@@ -57,6 +58,19 @@ export function useTickets(): UseTicketsReturn {
     async (payload: CreateTicketPayload): Promise<AnyTicket> => {
       const { data } = await api.post<AnyTicket>("/tickets/", payload);
       setTickets((prev) => [data, ...prev]);
+      return data;
+    },
+    []
+  );
+
+  // ─── Analizar ticket (agente IA en el backend) ────────────
+  const analyzeTicket = useCallback(
+    async (id: string, opts: { autoMode: boolean; adminPrompt: string }): Promise<AnyTicket> => {
+      const { data } = await api.post<AnyTicket>(`/tickets/${id}/analyze`, {
+        autoMode: opts.autoMode,
+        adminPrompt: opts.adminPrompt,
+      });
+      setTickets((prev) => prev.map((t) => (t.id === id ? data : t)));
       return data;
     },
     []
@@ -121,6 +135,7 @@ export function useTickets(): UseTicketsReturn {
     error,
     refresh,
     createTicket,
+    analyzeTicket,
     updateTicket,
     approveTicket,
     rejectTicket,

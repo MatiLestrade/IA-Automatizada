@@ -218,3 +218,11 @@ class ApproveRejectRequest(BaseModel):
 class PoolReorderRequest(BaseModel):
     """Lista ordenada de IDs de tickets para actualizar pool_position."""
     ordered_ids: list[str]
+
+
+class AnalyzeRequest(BaseModel):
+    """Body para disparar el análisis IA de un ticket (corre en el backend)."""
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    auto_mode:    bool          = False  # ejecuta LOW/MEDIUM sin aprobación manual
+    admin_prompt: Optional[str] = None   # prompt extra del admin

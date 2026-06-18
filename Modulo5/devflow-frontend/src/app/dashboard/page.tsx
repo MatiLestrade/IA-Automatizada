@@ -13,19 +13,15 @@ import { AppShell } from "../../components/layout/AppShell";
 import { TicketCard } from "../../components/tickets/TicketCard";
 import { TicketModal } from "../../components/tickets/TicketModal";
 import { TicketForm } from "../../components/tickets/TicketForm";
-import { THEME, PRIORITY_ORDER, AUTO_REQUIRES_APPROVAL } from "../../lib/constants";
+import { THEME, PRIORITY_ORDER } from "../../lib/constants";
 import type {
   AnyTicket,
   TicketStatus,
   CreateTicketPayload,
-  AIAnalysisResult,
-  AgentMessage,
 } from "../../types";
 
 const DEFAULT_PROMPT =
   "Sos DevFlow AI, un agente de soporte técnico especializado en desarrollo web. Analizá el ticket y respondé únicamente con el JSON solicitado.";
-
-const ANTHROPIC_KEY = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY ?? "";
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
@@ -34,7 +30,7 @@ export default function DashboardPage() {
     loading: ticketsLoading,
     refresh,
     createTicket,
-    updateTicket,
+    analyzeTicket,
     approveTicket,
     rejectTicket,
     reopenTicket,
@@ -55,129 +51,18 @@ export default function DashboardPage() {
       ? tickets
       : tickets.filter((t) => t.status === activeStatus);
 
-  // ─── Agente IA ────────────────────────────────────────────
+  // ─── Agente IA (corre en el backend) ──────────────────────
   const runAgent = useCallback(
-    async (ticketId: string, payload: CreateTicketPayload): Promise<void> => {
-      // 1. Marcar como analizando
-      await updateTicket(ticketId, { status: "analyzing", stepCheckpoint: "analyzing" });
-
-      // 2. Intentar fetch de la página
-      let pageContent = "";
-      let pageFetched = false;
-      if (payload.page) {
-        try {
-          const res = await fetch(
-            `https://api.allorigins.win/get?url=${encodeURIComponent(payload.page)}`
-          );
-          const json = await res.json();
-          if (json.contents) {
-            pageContent = json.contents
-              .replace(/<script[\s\S]*?<\/script>/gi, "")
-              .replace(/<style[\s\S]*?<\/style>/gi, "")
-              .replace(/<[^>]+>/g, " ")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 2000);
-            pageFetched = true;
-          }
-        } catch {
-          pageFetched = false;
-        }
-      }
-
-      // 3. Construir mensajes para Claude
-      const userMessage = `
-      Ticket ID: ${ticketId}
-      Título: ${payload.title}
-      Descripción: ${payload.description}
-      Página: ${payload.page || "no especificada"}
-      Ruta: ${payload.page_name || "no especificada"}
-      ${pageContent ? `\nContenido de la página:\n${pageContent}` : ""}
-
-      Prompt adicional del admin: ${adminPrompt}
-
-      Respondé ÚNICAMENTE con este JSON (sin markdown, sin texto extra):
-      {
-        "type": "FE" | "BE" | "DB",
-        "priority": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
-        "eta": "tiempo estimado en español",
-        "aiSuggestion": "solución técnica detallada en español con pasos numerados",
-        "pageAnalysis": "análisis del contenido de la página en español o null",
-        "codeHints": [
-          {
-            "file": "NombreArchivo.jsx",
-            "lines": "línea 40 o entre 20 y 40",
-            "description": "qué cambiar en español",
-            "fix": "snippet de código"
-          }
-        ]
-      }`;
-
-      const messages: AgentMessage[] = [{ role: "user", content: userMessage }];
-
-      // 4. Llamar a Claude API
-      //ESTO ES UNA PRUEBA Y CON ESTE METODO MAS FIABLE, SE NECESITA PAGAR .
-      let aiResult: AIAnalysisResult | null = null;
+    async (ticketId: string, ticketTitle: string): Promise<void> => {
       try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1500,
-            system:
-              "You are DevFlow AI, a technical support agent specialized in web development. Always respond ONLY with the requested JSON. No markdown, no explanation, just the raw JSON object. All text fields must be in Spanish.",
-            messages,
-          }),
-        });
-
-        const data = await response.json();
-        const raw  = data.content?.[0]?.text ?? "";
-        const clean = raw.replace(/```json|```/g, "").trim();
-        aiResult = JSON.parse(clean) as AIAnalysisResult;
+        const updated = await analyzeTicket(ticketId, { autoMode, adminPrompt });
+        addToast({ ticketId, ticketTitle, newStatus: updated.status });
       } catch {
-        await updateTicket(ticketId, {
-          status: "received",
-          aiError: "No se pudo analizar el ticket. Verificá tu API key de Anthropic.",
-          stepCheckpoint: "error",
-        });
-        return;
+        // El backend ya deja el ticket en 'received' con ai_error; refrescamos
+        await refresh();
       }
-
-      // 5. Determinar siguiente estado según prioridad + autoMode
-      const requiresApproval =
-        !autoMode || AUTO_REQUIRES_APPROVAL.includes(aiResult.priority);
-
-      const nextStatus: TicketStatus = requiresApproval ? "approval" : "queued";
-
-      // 6. Actualizar ticket con resultado completo
-      await updateTicket(ticketId, {
-        type:          aiResult.type,
-        ...(payload.priority == null ? { priority: aiResult.priority } : {}),
-        eta:           aiResult.eta,
-        aiSuggestion:  aiResult.aiSuggestion,
-        pageAnalysis:  aiResult.pageAnalysis ?? "",
-        codeHints:     aiResult.codeHints,
-        pageFetched,
-        autoExecuted:  !requiresApproval,
-        status:        nextStatus,
-        aiError:       null,
-        stepCheckpoint: "completed",
-        agentHistory:  messages,
-      });
-
-      addToast({
-        ticketId,
-        ticketTitle: payload.title,
-        newStatus: nextStatus,
-      });
     },
-    [autoMode, adminPrompt, updateTicket, addToast]
+    [autoMode, adminPrompt, analyzeTicket, addToast, refresh]
   );
 
   // ─── Crear ticket ─────────────────────────────────────────
@@ -198,8 +83,8 @@ export default function DashboardPage() {
         });
       }
 
-      // Lanzar agente en background
-      runAgent(ticket.id, payload);
+      // Lanzar agente en background (corre en el backend)
+      runAgent(ticket.id, payload.title);
     },
     [createTicket, runAgent, user, addToast]
   );
