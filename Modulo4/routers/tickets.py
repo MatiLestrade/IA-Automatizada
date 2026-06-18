@@ -42,8 +42,16 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 # Helper: siguiente ID de ticket
 # ─────────────────────────────────────────────
 def _next_ticket_id(db: Session) -> str:
-    count = db.query(Ticket).count()
-    return f"T-{count + 1:03d}"
+    # max(número existente) + 1 — no usar count(): tras borrar un ticket
+    # count+1 puede chocar con un ID que todavía existe (PK duplicada).
+    max_n = 0
+    for (tid,) in db.query(Ticket.id).all():
+        if tid and tid.startswith("T-"):
+            try:
+                max_n = max(max_n, int(tid[2:]))
+            except ValueError:
+                continue
+    return f"T-{max_n + 1:03d}"
 
 
 # ─────────────────────────────────────────────
@@ -173,11 +181,18 @@ def update_ticket(
     if current_user.role == "client" and ticket.client_id != current_user.client_id:
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
+    old_status = ticket.status
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(ticket, field, value)
 
     ticket.updated_at = datetime.now(timezone.utc)
+
+    # Sincronizar el issue de GitHub con el estado del ticket (best-effort):
+    # completed → cierra el issue · sale de completed → lo reabre
+    if "status" in update_data:
+        _sync_github_issue_state(ticket, old_status)
+
     db.commit()
     db.refresh(ticket)
     return _serialize(ticket, current_user.role)
@@ -340,6 +355,35 @@ def _ensure_github_issue(ticket: Ticket) -> None:
         print(f"[github] no se pudo crear el issue para {ticket.id}: {exc}")
 
 
+def _sync_github_issue_state(ticket: Ticket, old_status) -> None:
+    """
+    Mantiene el estado del issue de GitHub en sincronía con el del ticket.
+    Best-effort: si GitHub no está configurado o falla, NO rompe el flujo.
+      - pasa a 'completed'        → cierra el issue (state=closed)
+      - sale de 'completed'       → reabre el issue (state=open)
+    No hace commit (lo hace el caller).
+    """
+    if not ticket.github_issue_number:
+        return  # el ticket no tiene issue asociado
+
+    repo = (ticket.client.github_repo if ticket.client else None) or os.getenv("GITHUB_REPO")
+    if not (repo and os.getenv("GITHUB_TOKEN")):
+        return  # GitHub no configurado → se omite silenciosamente
+
+    new_status = ticket.status
+    if new_status == StatusEnum.completed and old_status != StatusEnum.completed:
+        desired = "closed"
+    elif old_status == StatusEnum.completed and new_status != StatusEnum.completed:
+        desired = "open"
+    else:
+        return  # el cambio de estado no afecta al issue
+
+    try:
+        github_client.set_issue_state(ticket.github_issue_number, desired, repo=repo)
+    except Exception as exc:  # noqa: BLE001 — no abortar el update por GitHub
+        print(f"[github] no se pudo poner el issue de {ticket.id} en '{desired}': {exc}")
+
+
 @router.post("/{ticket_id}/github-issue")
 def create_github_issue(
     ticket_id: str,
@@ -382,35 +426,6 @@ def create_github_issue(
     return TicketOut.model_validate(ticket).model_dump()
 
 
-# ─────────────────────────────────────────────
-# DELETE /tickets
-# Solo el cliente puede borrar
-# Body: { "ordered_ids": ["T-001", "T-003", "T-002", ...] }
-# ─────────────────────────────────────────────
-@router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_ticket(
-    ticket_id:    str,
-    db:           Session = Depends(get_db),
-    current_user: User    = Depends(get_current_user),
-):
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket no encontrado")
-
-    # Cliente solo puede borrar sus propios tickets
-    if current_user.role == "client" and ticket.client_id != current_user.client_id:
-        raise HTTPException(status_code=403, detail="No tenés permiso para borrar este ticket")
-
-    # Solo se pueden borrar tickets en estado received o rejected
-    if ticket.status not in ("received", "rejected"):
-        raise HTTPException(
-            status_code=400,
-            detail="Solo podés borrar tickets en estado 'Recibido' o 'Rechazado'"
-        )
-
-    db.delete(ticket)
-    db.commit()
-    return None
 # ─────────────────────────────────────────────
 # POST /tickets/pool/reorder
 # Guardar orden manual del pool (admin)

@@ -140,3 +140,35 @@ def create_issue(
     resp.raise_for_status()
     data = resp.json()
     return {"number": data["number"], "html_url": data["html_url"]}
+
+
+# ─────────────────────────────────────────────
+# Cerrar / reabrir issue
+# ─────────────────────────────────────────────
+def set_issue_state(number: int, state: str, repo: str | None = None) -> dict:
+    """
+    Cambia el estado de un issue existente.
+    `state`: "closed" (cerrar) u "open" (reabrir).
+    """
+    if state not in ("closed", "open"):
+        raise ValueError(f"Estado de issue inválido: {state}")
+
+    repo = repo or _repo()
+    token = _issue_token()
+    if not repo or not token:
+        raise RuntimeError(
+            "Falta configurar el repo del cliente (o GITHUB_REPO) y/o GITHUB_TOKEN"
+        )
+
+    resp = httpx.patch(
+        f"{GITHUB_API}/repos/{repo}/issues/{number}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={"state": state},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return {"number": data["number"], "state": data["state"], "html_url": data["html_url"]}
