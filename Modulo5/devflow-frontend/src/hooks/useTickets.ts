@@ -101,7 +101,11 @@ export function useTickets(): UseTicketsReturn {
 
   // ─── Reordenar pool ───────────────────────────────────────
   const reorderPool = useCallback(async (payload: ReorderPayload): Promise<void> => {
-    await api.post("/tickets/pool/reorder", payload);
+    // El backend espera { ordered_ids: [...] } en el orden deseado
+    const ordered_ids = [...payload.order]
+      .sort((a, b) => a.poolPosition - b.poolPosition)
+      .map((o) => o.id);
+    await api.post("/tickets/pool/reorder", { ordered_ids });
     // Actualiza poolPosition localmente para no refetchear todo
     setTickets((prev) =>
       prev.map((t) => {
