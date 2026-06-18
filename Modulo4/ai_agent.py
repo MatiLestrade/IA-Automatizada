@@ -14,8 +14,8 @@ import re
 import anthropic
 import httpx
 
-# claude-opus-4-8: modelo recomendado por defecto (ver skill claude-api).
-MODEL = "claude-opus-4-8"
+# claude-sonnet-4-6: modelo de costo intermedio (entre Opus y Haiku).
+MODEL = "claude-sonnet-4-6"
 
 _SYSTEM = (
     "You are DevFlow AI, a technical support agent specialized in web development. "
