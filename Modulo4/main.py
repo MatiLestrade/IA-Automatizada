@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine, SessionLocal
-from routers import auth, clients, github_auth, tickets
+from routers import auth, clients, tickets
 from seed import seed_demo_data
 
 
@@ -66,7 +66,6 @@ app.add_middleware(
 # Routers
 # ─────────────────────────────────────────────
 app.include_router(auth.router)
-app.include_router(github_auth.router)
 app.include_router(clients.router)
 app.include_router(tickets.router)
 

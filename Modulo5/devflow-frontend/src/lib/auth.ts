@@ -5,7 +5,7 @@
 
 import Cookies from "js-cookie";
 import api from "@/lib/api";
-import type { User, LoginRequest, LoginResponse } from "@/types";
+import type { User, LoginRequest } from "@/types";
 
 const TOKEN_KEY = "devflow_token";
 const USER_KEY  = "devflow_user";
@@ -25,16 +25,6 @@ export async function login(credentials: LoginRequest): Promise<User> {
   const { data: user } = await api.get<User>("/auth/me");
   Cookies.set(USER_KEY, JSON.stringify(user), { expires: 7 });
 
-  return user;
-}
-
-// ─── Login con token ya emitido (OAuth GitHub) ───────────────
-// El backend redirige a /auth/github/callback?token=... ; acá guardamos
-// el token y traemos el usuario, igual que login() pero sin password.
-export async function loginWithToken(token: string): Promise<User> {
-  Cookies.set(TOKEN_KEY, token, { expires: 7 });
-  const { data: user } = await api.get<User>("/auth/me");
-  Cookies.set(USER_KEY, JSON.stringify(user), { expires: 7 });
   return user;
 }
 

@@ -2,10 +2,9 @@
 DevFlow — github_client.py
 Cliente HTTP fino sobre la API de GitHub (httpx).
 
-Centraliza las llamadas externas y la lectura de las env vars de GitHub.
-Lo usan:
-  - routers/github_auth.py  → OAuth login (exchange_code_for_token, fetch_github_user)
-  - routers/tickets.py      → crear issues (create_issue)
+Centraliza las llamadas a la API de Issues y la lectura de las env vars.
+Lo usa routers/tickets.py para crear, cerrar y reabrir issues a partir
+de los tickets aprobados/resueltos.
 """
 
 import os
@@ -18,94 +17,12 @@ import httpx
 GITHUB_API = "https://api.github.com"
 
 
-def _client_id() -> str:
-    return os.getenv("GITHUB_CLIENT_ID", "")
-
-
-def _client_secret() -> str:
-    return os.getenv("GITHUB_CLIENT_SECRET", "")
-
-
-def _redirect_uri() -> str:
-    return os.getenv("GITHUB_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/github/callback")
-
-
 def _issue_token() -> str:
     return os.getenv("GITHUB_TOKEN", "")
 
 
 def _repo() -> str:
     return os.getenv("GITHUB_REPO", "")
-
-
-# ─────────────────────────────────────────────
-# OAuth login
-# ─────────────────────────────────────────────
-def authorize_url(state: str) -> str:
-    """URL de autorización de GitHub a la que redirigimos al usuario."""
-    from urllib.parse import urlencode
-
-    params = {
-        "client_id": _client_id(),
-        "redirect_uri": _redirect_uri(),
-        "scope": "read:user user:email",
-        "state": state,
-        "allow_signup": "true",
-    }
-    return f"https://github.com/login/oauth/authorize?{urlencode(params)}"
-
-
-def exchange_code_for_token(code: str) -> str:
-    """Intercambia el ?code del callback por un access_token de usuario."""
-    resp = httpx.post(
-        "https://github.com/login/oauth/access_token",
-        headers={"Accept": "application/json"},
-        data={
-            "client_id": _client_id(),
-            "client_secret": _client_secret(),
-            "code": code,
-            "redirect_uri": _redirect_uri(),
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    token = data.get("access_token")
-    if not token:
-        raise ValueError(f"GitHub no devolvió access_token: {data}")
-    return token
-
-
-def fetch_github_user(token: str) -> dict:
-    """Datos del usuario de GitHub + su email primario verificado."""
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-    }
-    with httpx.Client(headers=headers, timeout=15) as client:
-        user = client.get(f"{GITHUB_API}/user")
-        user.raise_for_status()
-        profile = user.json()
-
-        # El email del perfil puede ser null si es privado → pedir /user/emails
-        email = profile.get("email")
-        if not email:
-            emails = client.get(f"{GITHUB_API}/user/emails")
-            if emails.status_code == 200:
-                primary = next(
-                    (e for e in emails.json() if e.get("primary") and e.get("verified")),
-                    None,
-                )
-                if primary:
-                    email = primary["email"]
-
-    return {
-        "github_id": str(profile["id"]),
-        "github_login": profile.get("login"),
-        "name": profile.get("name") or profile.get("login"),
-        "email": email or f"{profile.get('login')}@users.noreply.github.com",
-        "avatar_url": profile.get("avatar_url"),
-    }
 
 
 # ─────────────────────────────────────────────
