@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { login } from "@/lib/auth";
-import { THEME, DEMO_CREDENTIALS } from "@/lib/constants";
+import { THEME } from "@/lib/constants";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -36,12 +36,6 @@ export default function LoginPage() {
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") handleLogin();
-  }
-
-  function fillCredentials(cred: typeof DEMO_CREDENTIALS[number]) {
-    setEmail(cred.email);
-    setPassword(cred.password);
-    setError(null);
   }
 
   return (
@@ -131,39 +125,6 @@ export default function LoginPage() {
             >
               {loading ? "Ingresando..." : "Ingresar"}
             </button>
-          </div>
-        </div>
-
-        {/* Credenciales demo */}
-        <div className="mt-4">
-          <p className="text-xs font-mono text-gray-600 text-center mb-2">
-            Credenciales demo
-          </p>
-          <div className="space-y-1.5">
-            {DEMO_CREDENTIALS.map((cred) => (
-              <button
-                key={cred.email}
-                onClick={() => fillCredentials(cred)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-mono transition-colors hover:brightness-110"
-                style={{
-                  backgroundColor: THEME.surface,
-                  border: `1px solid ${THEME.border}`,
-                  color: "#64748B",
-                }}
-              >
-                <span
-                  className="px-1.5 py-0.5 rounded text-xs"
-                  style={{
-                    backgroundColor:
-                      cred.role === "admin" ? `${THEME.accent}22` : "#22C55E22",
-                    color: cred.role === "admin" ? THEME.accent : "#22C55E",
-                  }}
-                >
-                  {cred.role}
-                </span>
-                <span>{cred.email}</span>
-              </button>
-            ))}
           </div>
         </div>
       </div>

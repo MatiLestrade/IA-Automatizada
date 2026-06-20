@@ -29,6 +29,8 @@ const api = axios.create({
   baseURL: API_URL,
   headers: {
     "Content-Type": "application/json",
+    // Saltea la página de aviso de ngrok en las llamadas a la API (mismo origen)
+    "ngrok-skip-browser-warning": "true",
   },
 });
 

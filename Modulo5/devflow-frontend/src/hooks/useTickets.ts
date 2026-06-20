@@ -38,7 +38,7 @@ export function useTickets(): UseTicketsReturn {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      const { data } = await api.get<AnyTicket[]>("/tickets");
+      const { data } = await api.get<AnyTicket[]>("/tickets/");
       setTickets(data);
     } catch (err: unknown) {
       const message =

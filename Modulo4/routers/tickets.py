@@ -72,7 +72,7 @@ def _serialize(ticket: Ticket, role: str) -> dict:
 # ─────────────────────────────────────────────
 # GET /tickets
 # ─────────────────────────────────────────────
-@router.get("/")
+@router.get("")
 def list_tickets(
     status_filter: Optional[str] = Query(None, alias="status"),
     priority:      Optional[str] = Query(None),
@@ -108,7 +108,7 @@ def list_tickets(
 # ─────────────────────────────────────────────
 # POST /tickets
 # ─────────────────────────────────────────────
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_ticket(
     body:         TicketCreate,
     db:           Session = Depends(get_db),

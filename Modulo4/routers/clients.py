@@ -17,7 +17,7 @@ from schemas import ClientOut, ClientUpdate
 router = APIRouter(prefix="/clients", tags=["clients"])
 
 
-@router.get("/")
+@router.get("")
 def list_clients(
     db: Session = Depends(get_db),
     _:  User    = Depends(require_admin),
