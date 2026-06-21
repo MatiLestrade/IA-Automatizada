@@ -172,6 +172,9 @@ def analyze_ticket(
     ticket.updated_at      = datetime.now(timezone.utc)
     db.commit()
 
+    # Repo del cliente para que la IA lectora lea su código (fallback al global).
+    repo = (ticket.client.github_repo if ticket.client else None) or os.getenv("GITHUB_REPO")
+
     # Traer el contenido de la página (server-side) y correr el análisis
     page_text, page_fetched = ai_agent.fetch_page_text(ticket.page)
     try:
@@ -183,11 +186,19 @@ def analyze_ticket(
             page_name=ticket.page_name,
             admin_prompt=body.admin_prompt,
             page_content=page_text,
+            repo=repo,
         )
     except Exception as exc:  # noqa: BLE001 — degradar a 'received' sin romper
         print(f"[ai] análisis falló para {ticket.id}: {exc}")
+        detail = str(exc)
+        if "credit balance" in detail.lower():
+            msg = "No se pudo analizar: la cuenta de Anthropic no tiene crédito (cargar saldo en Billing)."
+        elif "authentication" in detail.lower() or "api key" in detail.lower():
+            msg = "No se pudo analizar: ANTHROPIC_API_KEY inválida o faltante en el backend."
+        else:
+            msg = "No se pudo analizar el ticket (error al contactar la IA). Ver logs del backend."
         ticket.status          = StatusEnum.received
-        ticket.ai_error        = "No se pudo analizar el ticket. Revisá ANTHROPIC_API_KEY en el backend."
+        ticket.ai_error        = msg
         ticket.step_checkpoint = "error"
         ticket.updated_at      = datetime.now(timezone.utc)
         db.commit()

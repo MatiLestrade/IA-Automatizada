@@ -203,7 +203,8 @@ class TicketOutClient(BaseModel):
     page_fetched: bool
     auto_executed: bool
     approved:     Optional[bool]           = None
-    ai_error:     Optional[str]            = None
+    # ai_error queda fuera a propósito: sus mensajes mencionan detalles internos
+    # (crédito de Anthropic, API key, logs) que el cliente no debe ver.
 
     model_config = {"from_attributes": True}
 
