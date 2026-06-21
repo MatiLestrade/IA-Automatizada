@@ -1,6 +1,8 @@
 // ============================================================
 // DevFlow — Módulo 5
-// app/dashboard/page.tsx — Dashboard principal
+// app/dashboard/page.tsx — Tablero principal de tickets
+// Lista vertical agrupable (estado / criticidad / cliente / fecha /
+// sin agrupar). En modo "estado" (admin) se arrastra para cambiar estado.
 // ============================================================
 
 "use client";
@@ -10,18 +12,33 @@ import { useAuth } from "../../hooks/useAuth";
 import { useTickets } from "../../hooks/useTickets";
 import { useToasts } from "../../components/ui/Toast";
 import { AppShell } from "../../components/layout/AppShell";
-import { TicketCard } from "../../components/tickets/TicketCard";
+import { TicketBoard, type GroupBy } from "../../components/tickets/TicketBoard";
+import {
+  TicketFilters,
+  applyFilters,
+  EMPTY_FILTERS,
+  type TicketFilterState,
+} from "../../components/tickets/TicketFilters";
 import { TicketModal } from "../../components/tickets/TicketModal";
 import { TicketForm } from "../../components/tickets/TicketForm";
-import { THEME, PRIORITY_ORDER } from "../../lib/constants";
+import { THEME } from "../../lib/constants";
 import type {
   AnyTicket,
   TicketStatus,
   CreateTicketPayload,
+  UpdateTicketPayload,
 } from "../../types";
 
 const DEFAULT_PROMPT =
   "Sos DevFlow AI, un agente de soporte técnico especializado en desarrollo web. Analizá el ticket y respondé únicamente con el JSON solicitado.";
+
+const GROUP_OPTIONS: Array<{ key: GroupBy; label: string; adminOnly?: boolean }> = [
+  { key: "none",     label: "Todos" },
+  { key: "status",   label: "Estado" },
+  { key: "priority", label: "Criticidad" },
+  { key: "client",   label: "Cliente", adminOnly: true },
+  { key: "date",     label: "Fecha" },
+];
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
@@ -31,6 +48,7 @@ export default function DashboardPage() {
     refresh,
     createTicket,
     analyzeTicket,
+    updateTicket,
     approveTicket,
     rejectTicket,
     reopenTicket,
@@ -39,17 +57,12 @@ export default function DashboardPage() {
 
   const { toasts, addToast, removeToast } = useToasts();
 
-  const [activeStatus, setActiveStatus]   = useState<TicketStatus | "all">("all");
+  const [groupBy, setGroupBy]               = useState<GroupBy>("status");
+  const [filters, setFilters]               = useState<TicketFilterState>(EMPTY_FILTERS);
   const [selectedTicket, setSelectedTicket] = useState<AnyTicket | null>(null);
-  const [showForm, setShowForm]           = useState(false);
-  const [autoMode, setAutoMode]           = useState(false);
-  const [adminPrompt, setAdminPrompt]     = useState(DEFAULT_PROMPT);
-
-  // ─── Filtrado ──────────────────────────────────────────────
-  const filtered =
-    activeStatus === "all"
-      ? tickets
-      : tickets.filter((t) => t.status === activeStatus);
+  const [showForm, setShowForm]             = useState(false);
+  const [autoMode, setAutoMode]             = useState(false);
+  const [adminPrompt, setAdminPrompt]       = useState(DEFAULT_PROMPT);
 
   // ─── Agente IA (corre en el backend) ──────────────────────
   const runAgent = useCallback(
@@ -58,7 +71,6 @@ export default function DashboardPage() {
         const updated = await analyzeTicket(ticketId, { autoMode, adminPrompt });
         addToast({ ticketId, ticketTitle, newStatus: updated.status });
       } catch {
-        // El backend ya deja el ticket en 'received' con ai_error; refrescamos
         await refresh();
       }
     },
@@ -74,55 +86,41 @@ export default function DashboardPage() {
         stepCheckpoint: "created",
         createdAt: new Date().toISOString(),
       });
-
       if (user?.role === "client") {
-        addToast({
-          ticketId: ticket.id,
-          ticketTitle: payload.title,
-          newStatus: "received",
-        });
+        addToast({ ticketId: ticket.id, ticketTitle: payload.title, newStatus: "received" });
       }
-
-      // Lanzar agente en background (corre en el backend)
       runAgent(ticket.id, payload.title);
     },
     [createTicket, runAgent, user, addToast]
   );
 
-  // ─── Borrar ───────────────────────────────────────────────
-  const handleDelete = useCallback(
-    async (id: string) => {
-      await deleteTicket(id);
+  // ─── Cambiar estado arrastrando (solo admin, vista por estado) ─
+  const handleChangeStatus = useCallback(
+    async (id: string, status: TicketStatus) => {
+      const updated = await updateTicket(id, { status });
+      addToast({ ticketId: id, ticketTitle: updated.title, newStatus: status });
     },
-    [deleteTicket]
+    [updateTicket, addToast]
   );
 
-  // ─── Aprobar ──────────────────────────────────────────────
-  const handleApprove = useCallback(
-    async (id: string) => {
-      const t = await approveTicket(id);
-      addToast({ ticketId: id, ticketTitle: t.title, newStatus: t.status });
-    },
-    [approveTicket, addToast]
-  );
-
-  // ─── Rechazar ─────────────────────────────────────────────
-  const handleReject = useCallback(
-    async (id: string) => {
-      const t = await rejectTicket(id);
-      addToast({ ticketId: id, ticketTitle: t.title, newStatus: t.status });
-    },
-    [rejectTicket, addToast]
-  );
-
-  // ─── Reabrir ──────────────────────────────────────────────
-  const handleReopen = useCallback(
-    async (id: string) => {
-      const t = await reopenTicket(id);
-      addToast({ ticketId: id, ticketTitle: t.title, newStatus: t.status });
-    },
-    [reopenTicket, addToast]
-  );
+  // ─── Acciones del modal ───────────────────────────────────
+  const handleUpdate = useCallback(async (id: string, payload: UpdateTicketPayload) => {
+    const updated = await updateTicket(id, payload);
+    setSelectedTicket(updated);
+  }, [updateTicket]);
+  const handleDelete = useCallback(async (id: string) => { await deleteTicket(id); }, [deleteTicket]);
+  const handleApprove = useCallback(async (id: string) => {
+    const t = await approveTicket(id);
+    addToast({ ticketId: id, ticketTitle: t.title, newStatus: t.status });
+  }, [approveTicket, addToast]);
+  const handleReject = useCallback(async (id: string) => {
+    const t = await rejectTicket(id);
+    addToast({ ticketId: id, ticketTitle: t.title, newStatus: t.status });
+  }, [rejectTicket, addToast]);
+  const handleReopen = useCallback(async (id: string) => {
+    const t = await reopenTicket(id);
+    addToast({ ticketId: id, ticketTitle: t.title, newStatus: t.status });
+  }, [reopenTicket, addToast]);
 
   // ─── Loading ──────────────────────────────────────────────
   if (authLoading || !user) {
@@ -134,6 +132,8 @@ export default function DashboardPage() {
   }
 
   const isAdmin = user.role === "admin";
+  const options = GROUP_OPTIONS.filter((o) => !o.adminOnly || isAdmin);
+  const visibleTickets = applyFilters(tickets, filters);
 
   return (
     <AppShell
@@ -141,29 +141,27 @@ export default function DashboardPage() {
       tickets={tickets}
       toasts={toasts}
       onToastRemove={removeToast}
-      activeStatus={activeStatus}
-      onStatusChange={setActiveStatus}
       autoMode={autoMode}
       onAutoModeToggle={() => setAutoMode((v) => !v)}
       adminPrompt={adminPrompt}
       onAdminPromptChange={setAdminPrompt}
     >
-      <div className="p-6">
+      <div className="flex flex-col h-full p-6">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4 shrink-0">
           <div>
             <h2
               className="text-xl font-bold text-gray-100"
               style={{ fontFamily: "var(--font-syne), sans-serif" }}
             >
-              {activeStatus === "all"
-                ? "Todos los tickets"
-                : `Tickets · ${activeStatus}`}
+              Tickets
             </h2>
             <p className="text-xs font-mono text-gray-600 mt-0.5">
-              {filtered.length} ticket{filtered.length !== 1 ? "s" : ""}
-              {isAdmin && ` · ${tickets.length} total`}
+              {visibleTickets.length !== tickets.length
+                ? `${visibleTickets.length} de ${tickets.length} tickets`
+                : `${tickets.length} ticket${tickets.length !== 1 ? "s" : ""}`}
+              {groupBy === "status" && isAdmin && " · arrastrá una tarjeta para cambiar su estado"}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -184,60 +182,64 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Stats bar — solo admin */}
-        {isAdmin && (
-          <div className="grid grid-cols-4 gap-3 mb-6">
-            {(["approval", "inprogress", "completed", "rejected"] as TicketStatus[]).map((s) => {
-              const count = tickets.filter((t) => t.status === s).length;
-              return (
-                <button
-                  key={s}
-                  onClick={() => setActiveStatus(s)}
-                  className="rounded-lg px-4 py-3 text-left transition-colors hover:brightness-110"
-                  style={{
-                    backgroundColor: THEME.surface,
-                    border: `1px solid ${activeStatus === s ? THEME.accent : THEME.border}`,
-                  }}
-                >
-                  <p className="text-2xl font-bold font-mono text-gray-100">{count}</p>
-                  <p className="text-xs font-mono text-gray-500 capitalize mt-0.5">{s}</p>
-                </button>
-              );
-            })}
-          </div>
+        {/* Selector: agrupar por */}
+        <div className="flex items-center gap-2 mb-5 shrink-0">
+          <span className="text-xs font-mono text-gray-600 mr-1">Agrupar por:</span>
+          {options.map((o) => {
+            const active = groupBy === o.key;
+            return (
+              <button
+                key={o.key}
+                onClick={() => setGroupBy(o.key)}
+                className="text-xs font-mono px-3 py-1.5 rounded-md transition-colors"
+                style={{
+                  backgroundColor: active ? `${THEME.accent}22` : THEME.surface,
+                  color: active ? THEME.accent : "#94A3B8",
+                  border: `1px solid ${active ? THEME.accent : THEME.border}`,
+                }}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Búsqueda + filtros */}
+        {!ticketsLoading && tickets.length > 0 && (
+          <TicketFilters
+            tickets={tickets}
+            isAdmin={isAdmin}
+            value={filters}
+            onChange={setFilters}
+          />
         )}
 
-        {/* Lista de tickets */}
-        {ticketsLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <span className="text-sm font-mono text-gray-600 animate-pulse">
-              Cargando tickets...
-            </span>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-2">
-            <span className="text-3xl">📭</span>
-            <p className="text-sm font-mono text-gray-600">No hay tickets para mostrar</p>
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {filtered
-              .slice()
-              .sort((a, b) => {
-                const pa = PRIORITY_ORDER.indexOf(a.priority);
-                const pb = PRIORITY_ORDER.indexOf(b.priority);
-                return pa - pb;
-              })
-              .map((ticket) => (
-                <TicketCard
-                  key={ticket.id}
-                  ticket={ticket}
-                  user={user}
-                  onClick={setSelectedTicket}
-                />
-              ))}
-          </div>
-        )}
+        {/* Tablero (kanban) */}
+        <div className="flex-1 min-h-0">
+          {ticketsLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <span className="text-sm font-mono text-gray-600 animate-pulse">Cargando tickets...</span>
+            </div>
+          ) : tickets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-2">
+              <span className="text-3xl">📭</span>
+              <p className="text-sm font-mono text-gray-600">No hay tickets para mostrar</p>
+            </div>
+          ) : visibleTickets.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-2">
+              <span className="text-3xl">🔍</span>
+              <p className="text-sm font-mono text-gray-600">Ningún ticket coincide con los filtros</p>
+            </div>
+          ) : (
+            <TicketBoard
+              tickets={visibleTickets}
+              user={user}
+              groupBy={groupBy}
+              onCardClick={setSelectedTicket}
+              onChangeStatus={handleChangeStatus}
+            />
+          )}
+        </div>
       </div>
 
       {/* Modal de detalle */}
@@ -250,15 +252,13 @@ export default function DashboardPage() {
           onReject={handleReject}
           onReopen={handleReopen}
           onDelete={handleDelete}
+          onUpdate={handleUpdate}
         />
       )}
 
       {/* Formulario nuevo ticket */}
       {showForm && (
-        <TicketForm
-          onSubmit={handleCreate}
-          onClose={() => setShowForm(false)}
-        />
+        <TicketForm onSubmit={handleCreate} onClose={() => setShowForm(false)} />
       )}
     </AppShell>
   );

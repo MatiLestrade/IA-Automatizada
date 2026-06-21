@@ -7,7 +7,7 @@ Todos los campos respetan el schema definido en devflow-referencia-maestro-1.md
 from datetime import datetime, timezone
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum, ForeignKey,
-    String, Text, Integer
+    String, Text, Integer, event
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -145,6 +145,14 @@ class Ticket(Base):
     step_checkpoint = Column(String, nullable=True)   # último paso completado
     agent_history   = Column(JSONB,  nullable=True, default=list)  # historial de mensajes
 
+    # Historial de cambios de estado (legacy, ya no se actualiza).
+    status_history  = Column(JSONB,  nullable=True, default=list)
+
+    # Registro de auditoría: lista de eventos { at, changes:[{field, old, new}] }.
+    # Lo mantiene el listener before_flush de abajo en cada guardado, detectando
+    # automáticamente QUÉ campos cambiaron (estado, título, descripción, etc.).
+    change_log      = Column(JSONB,  nullable=True, default=list)
+
     # Pool order (Módulo 3)
     pool_position   = Column(Integer, nullable=True)  # orden manual del admin
 
@@ -153,3 +161,61 @@ class Ticket(Base):
     github_issue_url    = Column(String,  nullable=True)
 
     client = relationship("Client", back_populates="tickets")
+
+
+# ─────────────────────────────────────────────
+# Auditoría automática de cambios (change_log)
+# En cada flush, detecta qué campos rastreados cambiaron en cada Ticket y
+# agrega un evento { at, changes:[{field, old, new}] }. Cubre TODOS los
+# caminos (crear, analizar, aprobar/rechazar, reabrir, arrastre, editar).
+# ─────────────────────────────────────────────
+from sqlalchemy import inspect as _sa_inspect           # noqa: E402
+from sqlalchemy.orm import Session as _SASession         # noqa: E402
+
+# Campos rastreados → etiqueta legible (en español) para el frontend.
+TRACKED_FIELDS = {
+    "status":      "Estado",
+    "title":       "Título",
+    "description": "Descripción",
+    "priority":    "Prioridad",
+    "type":        "Tipo",
+    "eta":         "ETA",
+    "page":        "Página",
+    "page_name":   "Ruta",
+}
+
+
+def _plain(v):
+    """Normaliza enums a su valor string; deja el resto igual."""
+    return v.value if hasattr(v, "value") else v
+
+
+@event.listens_for(_SASession, "before_flush")
+def _track_ticket_changes(session, flush_context, instances):
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Tickets nuevos → evento de creación (estado inicial)
+    for obj in session.new:
+        if isinstance(obj, Ticket):
+            obj.change_log = [{
+                "at": now,
+                "changes": [{"field": "status", "old": None, "new": _plain(obj.status)}],
+            }]
+
+    # Tickets modificados → diff de los campos rastreados
+    for obj in session.dirty:
+        if not isinstance(obj, Ticket):
+            continue
+        state = _sa_inspect(obj)
+        changes = []
+        for field in TRACKED_FIELDS:
+            hist = state.attrs[field].history
+            if hist.has_changes():
+                old = hist.deleted[0] if hist.deleted else None
+                new = hist.added[0] if hist.added else None
+                if _plain(old) != _plain(new):
+                    changes.append({"field": field, "old": _plain(old), "new": _plain(new)})
+        if changes:
+            log = list(obj.change_log or [])
+            log.append({"at": now, "changes": changes})
+            obj.change_log = log

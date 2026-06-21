@@ -5,7 +5,7 @@
 
 "use client";
 
-import { StatusBadge, PriorityBadge, TypeBadge, ClientBadge } from "@/components/ui/Badge";
+import { StatusBadge, PriorityBadge, TypeBadge, ClientBadge, PriorityNumber } from "@/components/ui/Badge";
 import { THEME } from "@/lib/constants";
 import type { AnyTicket, User } from "@/types";
 
@@ -40,7 +40,9 @@ export function TicketCard({ ticket, user, onClick }: TicketCardProps) {
       }}
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex items-start gap-3 mb-3">
+        {/* Nº de prioridad (color por criticidad) */}
+        <PriorityNumber priority={ticket.priority} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono text-indigo-400 font-bold">

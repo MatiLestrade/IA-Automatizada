@@ -15,8 +15,8 @@ interface AppShellProps {
   tickets: AnyTicket[];
   toasts: ToastItem[];
   onToastRemove: (id: string) => void;
-  activeStatus: TicketStatus | "all";
-  onStatusChange: (status: TicketStatus | "all") => void;
+  activeStatus?: TicketStatus | "all";
+  onStatusChange?: (status: TicketStatus | "all") => void;
   autoMode?: boolean;
   onAutoModeToggle?: () => void;
   adminPrompt?: string;

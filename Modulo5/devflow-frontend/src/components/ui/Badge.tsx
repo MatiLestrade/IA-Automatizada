@@ -3,8 +3,36 @@
 // components/ui/Badge.tsx — PriorityBadge, StatusBadge, TypeBadge
 // ============================================================
 
-import { STATUS_CONFIG, PRIORITY_CONFIG, TYPE_CONFIG } from "@/lib/constants";
+import { STATUS_CONFIG, PRIORITY_CONFIG, TYPE_CONFIG, THEME } from "@/lib/constants";
 import type { TicketStatus, TicketPriority, TicketType } from "@/types";
+
+// ─── PriorityNumber ─────────────────────────────────────────
+// Cuadradito chico con el nº de prioridad INVERTIDO: 1 = máxima
+// prioridad (Crítica) … 4 = mínima (Baja). Color apagado (tinte).
+export function PriorityNumber({ priority }: { priority?: TicketPriority | null }) {
+  const config = priority ? PRIORITY_CONFIG[priority] : null;
+  if (!config) {
+    return (
+      <div
+        className="w-6 h-6 rounded flex items-center justify-center text-xs font-mono font-bold shrink-0"
+        style={{ backgroundColor: `${THEME.border}80`, color: "#64748B" }}
+        title="Sin clasificar"
+      >
+        —
+      </div>
+    );
+  }
+  const rank = 5 - config.weight; // Crítica(4)→1, Alta→2, Media→3, Baja(1)→4
+  return (
+    <div
+      className="w-6 h-6 rounded flex items-center justify-center text-xs font-mono font-bold shrink-0"
+      style={{ backgroundColor: `${config.color}22`, color: config.color, border: `1px solid ${config.color}40` }}
+      title={`Prioridad: ${config.label} (${rank})`}
+    >
+      {rank}
+    </div>
+  );
+}
 
 // ─── StatusBadge ────────────────────────────────────────────
 interface StatusBadgeProps {

@@ -5,9 +5,10 @@
 
 "use client";
 
+import { useState } from "react";
 import { StatusBadge, PriorityBadge, TypeBadge } from "@/components/ui/Badge";
 import { THEME } from "@/lib/constants";
-import type { AnyTicket, Ticket, User } from "@/types";
+import type { AnyTicket, Ticket, User, UpdateTicketPayload, TicketPriority, TicketType } from "@/types";
 
 interface TicketModalProps {
   ticket: AnyTicket;
@@ -17,6 +18,7 @@ interface TicketModalProps {
   onReject?: (id: string) => void;
   onReopen?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onUpdate?: (id: string, payload: UpdateTicketPayload) => Promise<void>;
 }
 
 export function TicketModal({
@@ -27,9 +29,44 @@ export function TicketModal({
   onReject,
   onReopen,
   onDelete,
+  onUpdate,
 }: TicketModalProps) {
   const isAdmin    = user.role === "admin";
   const adminTicket = ticket as Ticket; // cast para acceder a campos IA
+
+  // ─── Edición (solo admin) ──────────────────────────────────
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const [form, setForm] = useState({
+    title: "", description: "",
+    priority: "" as TicketPriority | "", type: "" as TicketType | "", eta: "",
+  });
+
+  function startEdit() {
+    setForm({
+      title: ticket.title,
+      description: ticket.description,
+      priority: (ticket.priority ?? "") as TicketPriority | "",
+      type: (ticket.type ?? "") as TicketType | "",
+      eta: ticket.eta ?? "",
+    });
+    setEditing(true);
+  }
+
+  async function handleSave() {
+    if (!onUpdate) return;
+    const p: UpdateTicketPayload = {};
+    if (form.title.trim() && form.title !== ticket.title) p.title = form.title.trim();
+    if (form.description !== ticket.description) p.description = form.description;
+    if (form.priority && form.priority !== ticket.priority) p.priority = form.priority;
+    if (form.type && form.type !== ticket.type) p.type = form.type;
+    if (form.eta !== (ticket.eta ?? "")) p.eta = form.eta;
+    if (Object.keys(p).length > 0) {
+      setSaving(true);
+      try { await onUpdate(ticket.id, p); } finally { setSaving(false); }
+    }
+    setEditing(false);
+  }
 
   const canApproveReject =
     isAdmin && ticket.status === "approval";
@@ -82,16 +119,110 @@ export function TicketModal({
               </p>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="ml-4 text-gray-500 hover:text-gray-300 text-xl leading-none shrink-0"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2 ml-4 shrink-0">
+            {isAdmin && onUpdate && !editing && (
+              <button
+                onClick={startEdit}
+                className="text-xs font-mono px-2 py-1 rounded border transition-colors hover:text-gray-200"
+                style={{ borderColor: THEME.border, color: "#94A3B8" }}
+              >
+                ✎ Editar
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-300 text-xl leading-none"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Cuerpo */}
         <div className="p-6 space-y-5">
+
+          {editing && onUpdate ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-mono text-gray-500 mb-1">Título</label>
+              <input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                className="w-full text-sm font-mono px-3 py-2 rounded border focus:outline-none focus:border-indigo-500"
+                style={{ backgroundColor: THEME.bg, borderColor: THEME.border, color: "#E2E8F0" }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-gray-500 mb-1">Descripción</label>
+              <textarea
+                value={form.description}
+                onChange={(e) => setForm({ ...form, description: e.target.value })}
+                rows={4}
+                className="w-full text-sm font-mono px-3 py-2 rounded border resize-none focus:outline-none focus:border-indigo-500"
+                style={{ backgroundColor: THEME.bg, borderColor: THEME.border, color: "#E2E8F0" }}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-mono text-gray-500 mb-1">Prioridad</label>
+                <select
+                  value={form.priority}
+                  onChange={(e) => setForm({ ...form, priority: e.target.value as TicketPriority | "" })}
+                  className="w-full text-sm font-mono px-2 py-2 rounded border focus:outline-none focus:border-indigo-500"
+                  style={{ backgroundColor: THEME.bg, borderColor: THEME.border, color: "#E2E8F0" }}
+                >
+                  <option value="">—</option>
+                  <option value="LOW">Baja</option>
+                  <option value="MEDIUM">Media</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="CRITICAL">Crítica</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-gray-500 mb-1">Tipo</label>
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm({ ...form, type: e.target.value as TicketType | "" })}
+                  className="w-full text-sm font-mono px-2 py-2 rounded border focus:outline-none focus:border-indigo-500"
+                  style={{ backgroundColor: THEME.bg, borderColor: THEME.border, color: "#E2E8F0" }}
+                >
+                  <option value="">—</option>
+                  <option value="FE">Frontend</option>
+                  <option value="BE">Backend</option>
+                  <option value="DB">Base de datos</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-gray-500 mb-1">ETA</label>
+                <input
+                  value={form.eta}
+                  onChange={(e) => setForm({ ...form, eta: e.target.value })}
+                  placeholder="2h"
+                  className="w-full text-sm font-mono px-2 py-2 rounded border focus:outline-none focus:border-indigo-500"
+                  style={{ backgroundColor: THEME.bg, borderColor: THEME.border, color: "#E2E8F0" }}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 rounded-lg text-sm font-mono font-bold transition-colors"
+                style={{ backgroundColor: THEME.accent, color: "white", opacity: saving ? 0.6 : 1 }}
+              >
+                {saving ? "Guardando..." : "Guardar cambios"}
+              </button>
+              <button
+                onClick={() => setEditing(false)}
+                className="px-4 py-2 rounded-lg text-sm font-mono"
+                style={{ border: `1px solid ${THEME.border}`, color: "#94A3B8" }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+          ) : (
+          <>
 
           {/* Descripción */}
           <Section title="Descripción">
@@ -210,10 +341,12 @@ export function TicketModal({
               </a>
             </Section>
           )}
+          </>
+          )}
         </div>
 
         {/* Acciones */}
-        {(canApproveReject || canReopen || canDelete) && (
+        {!editing && (canApproveReject || canReopen || canDelete) && (
           <div
             className="sticky bottom-0 flex items-center gap-3 p-6 border-t"
             style={{ backgroundColor: THEME.surface, borderColor: THEME.border }}

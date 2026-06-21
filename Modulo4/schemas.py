@@ -122,6 +122,9 @@ class TicketCreate(BaseModel):
 class TicketUpdate(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
+    # Editables a mano (admin) — quedan registrados en el change_log
+    title:           Optional[str]             = None
+    description:     Optional[str]             = None
     status:          Optional[StatusEnum]      = None
     priority:        Optional[PriorityEnum]    = None
     type:            Optional[TicketTypeEnum]  = None
@@ -172,6 +175,10 @@ class TicketOut(BaseModel):
     step_checkpoint: Optional[str]             = None
     agent_history:   Optional[list[Any]]       = None
 
+    # Historial / auditoría de cambios
+    status_history:  Optional[list[Any]]       = None
+    change_log:      Optional[list[Any]]       = None
+
     # Pool
     pool_position:   Optional[int]             = None
 
@@ -203,6 +210,8 @@ class TicketOutClient(BaseModel):
     page_fetched: bool
     auto_executed: bool
     approved:     Optional[bool]           = None
+    status_history: Optional[list[Any]]    = None
+    change_log:   Optional[list[Any]]      = None
     # ai_error queda fuera a propósito: sus mensajes mencionan detalles internos
     # (crédito de Anthropic, API key, logs) que el cliente no debe ver.
 

@@ -24,3 +24,27 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ── Scrollbars al tono del diseño oscuro (no blancas) ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2a40 #12121a;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: #12121a;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a2a40;
+  border-radius: 8px;
+  border: 2px solid #12121a;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #3a3a55;
+}
+*::-webkit-scrollbar-corner {
+  background: #12121a;
+}

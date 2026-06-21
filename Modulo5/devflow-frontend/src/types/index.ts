@@ -19,6 +19,23 @@ export type TicketType = "FE" | "BE" | "DB";
 
 export type UserRole = "admin" | "client";
 
+// ─── Cambio de estado (timeline) ────────────────────────────
+export interface StatusChange {
+  status: TicketStatus;
+  at: string; // ISO 8601
+}
+
+// ─── Auditoría de cambios (change_log) ───────────────────────
+export interface FieldChange {
+  field: string;            // "status" | "title" | "description" | ...
+  old: string | null;
+  new: string | null;
+}
+export interface ChangeEvent {
+  at: string;               // ISO 8601
+  changes: FieldChange[];
+}
+
 // ─── CodeHint ───────────────────────────────────────────────
 export interface CodeHint {
   file: string;        // "LoginButton.jsx"
@@ -51,6 +68,8 @@ export interface Ticket {
   aiError: string | null;
   stepCheckpoint: string;
   agentHistory: AgentMessage[];
+  statusHistory?: StatusChange[];
+  changeLog?: ChangeEvent[];
   poolPosition: number;
   // Integración GitHub — issue creado a partir del ticket
   githubIssueNumber?: number;
@@ -75,6 +94,8 @@ export interface TicketClient {
   approved: boolean | null;
   autoExecuted: boolean;
   aiError: string | null;
+  statusHistory?: StatusChange[];
+  changeLog?: ChangeEvent[];
   poolPosition: number;
 }
 
@@ -149,6 +170,8 @@ export interface CreateTicketPayload {
 }
 
 export interface UpdateTicketPayload {
+  title?: string;
+  description?: string;
   status?: TicketStatus;
   priority?: TicketPriority;
   type?: TicketType;
