@@ -102,6 +102,17 @@ export interface TicketClient {
 // Union — el frontend puede recibir cualquiera de los dos
 export type AnyTicket = Ticket | TicketClient;
 
+// ─── Comentario (hilo del ticket) ───────────────────────────
+export interface Comment {
+  id: string;
+  ticketId: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  body: string;
+  createdAt: string; // ISO 8601
+}
+
 // ─── Usuario / Sesión ────────────────────────────────────────
 export interface User {
   id: string;

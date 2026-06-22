@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { StatusBadge, PriorityBadge, TypeBadge } from "@/components/ui/Badge";
+import { useComments } from "@/hooks/useComments";
 import { THEME } from "@/lib/constants";
 import type { AnyTicket, Ticket, User, UpdateTicketPayload, TicketPriority, TicketType } from "@/types";
 
@@ -341,6 +342,9 @@ export function TicketModal({
               </a>
             </Section>
           )}
+
+          {/* Comentarios — visible para ambos roles */}
+          <CommentsThread ticketId={ticket.id} user={user} />
           </>
           )}
         </div>
@@ -426,5 +430,94 @@ function MetaItem({
       <p className="text-xs text-gray-600 font-mono mb-0.5">{label}</p>
       <p className="text-xs text-gray-300 font-mono">{value}</p>
     </div>
+  );
+}
+
+// ─── Hilo de comentarios ─────────────────────────────────────
+function CommentsThread({ ticketId, user }: { ticketId: string; user: User }) {
+  const { comments, loading, error, add } = useComments(ticketId);
+  const [draft, setDraft]   = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function handleSend() {
+    const body = draft.trim();
+    if (!body || sending) return;
+    setSending(true);
+    try {
+      await add(body);
+      setDraft("");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const fmt = (at: string) => {
+    const d = new Date(at);
+    return isNaN(d.getTime())
+      ? ""
+      : d.toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <Section title={`💬 Comentarios${comments.length ? ` (${comments.length})` : ""}`}>
+      <div className="space-y-2 mb-3">
+        {loading ? (
+          <p className="text-xs font-mono text-gray-600 animate-pulse">Cargando comentarios...</p>
+        ) : error ? (
+          <p className="text-xs font-mono text-red-400">{error}</p>
+        ) : comments.length === 0 ? (
+          <p className="text-xs font-mono text-gray-600">Sin comentarios todavía.</p>
+        ) : (
+          comments.map((c) => {
+            const mine = c.authorId === user.id;
+            const isAdminAuthor = c.authorRole === "admin";
+            return (
+              <div
+                key={c.id}
+                className="rounded-lg p-3"
+                style={{ backgroundColor: THEME.bg, border: `1px solid ${THEME.border}` }}
+              >
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs font-mono font-bold" style={{ color: isAdminAuthor ? THEME.accent : "#A5B4FC" }}>
+                    {c.authorName}{mine ? " (vos)" : ""}
+                  </span>
+                  <span
+                    className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                    style={{ backgroundColor: THEME.border, color: "#94A3B8" }}
+                  >
+                    {isAdminAuthor ? "Soporte" : "Cliente"}
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-600 ml-auto">{fmt(c.createdAt)}</span>
+                </div>
+                <p className="text-sm font-mono text-gray-300 whitespace-pre-wrap">{c.body}</p>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Nuevo comentario */}
+      <div className="flex items-end gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSend(); }
+          }}
+          rows={2}
+          placeholder="Escribí un comentario… (Ctrl+Enter para enviar)"
+          className="flex-1 text-sm font-mono px-3 py-2 rounded border resize-none focus:outline-none focus:border-indigo-500"
+          style={{ backgroundColor: THEME.bg, borderColor: THEME.border, color: "#E2E8F0" }}
+        />
+        <button
+          onClick={handleSend}
+          disabled={sending || !draft.trim()}
+          className="px-4 py-2 rounded-lg text-sm font-mono font-bold transition-colors shrink-0"
+          style={{ backgroundColor: THEME.accent, color: "white", opacity: sending || !draft.trim() ? 0.5 : 1 }}
+        >
+          {sending ? "..." : "Enviar"}
+        </button>
+      </div>
+    </Section>
   );
 }

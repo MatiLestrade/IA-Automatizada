@@ -236,3 +236,29 @@ class AnalyzeRequest(BaseModel):
 
     auto_mode:    bool          = False  # ejecuta LOW/MEDIUM sin aprobación manual
     admin_prompt: Optional[str] = None   # prompt extra del admin
+
+
+# ─────────────────────────────────────────────
+# COMMENT — hilo de conversación por ticket
+# ─────────────────────────────────────────────
+class CommentCreate(BaseModel):
+    body: str
+
+    @field_validator("body")
+    @classmethod
+    def body_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("El comentario no puede estar vacío")
+        return v.strip()
+
+
+class CommentOut(BaseModel):
+    id:          str
+    ticket_id:   str
+    author_id:   str
+    author_name: str
+    author_role: str
+    body:        str
+    created_at:  datetime
+
+    model_config = {"from_attributes": True}

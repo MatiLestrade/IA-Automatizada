@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import Base, engine, SessionLocal
-from routers import auth, clients, tickets
+from routers import auth, clients, tickets, comments
 from seed import seed_demo_data
 
 
@@ -68,6 +68,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(clients.router)
 app.include_router(tickets.router)
+app.include_router(comments.router)
 
 
 # ─────────────────────────────────────────────

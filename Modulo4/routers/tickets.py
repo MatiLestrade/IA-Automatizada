@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 import ai_agent
+import email_client
 import github_client
 from database import get_db
 from models import (
@@ -144,6 +145,11 @@ def create_ticket(
     db.add(ticket)
     db.commit()
     db.refresh(ticket)
+
+    # Avisar al admin si el ticket lo creó un cliente
+    if current_user.role == "client":
+        _notify_admin_activity("Nuevo ticket", ticket, current_user, extra=ticket.description or "")
+
     return _serialize(ticket, current_user.role)
 
 
@@ -285,11 +291,14 @@ def update_ticket(
 
     # Sincronizar el issue de GitHub con el estado del ticket (best-effort):
     # completed → cierra el issue · sale de completed → lo reabre
+    status_changed = "status" in update_data and ticket.status != old_status
     if "status" in update_data:
         _sync_github_issue_state(ticket, old_status)
 
     db.commit()
     db.refresh(ticket)
+    if status_changed:
+        _notify_status_change(ticket, db)
     return _serialize(ticket, current_user.role)
 
 
@@ -352,6 +361,7 @@ def approve_or_reject(
     ticket.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(ticket)
+    _notify_status_change(ticket, db)
     return TicketOut.model_validate(ticket).model_dump()
 
 
@@ -390,6 +400,9 @@ def reopen_ticket(
 
     db.commit()
     db.refresh(ticket)
+    _notify_status_change(ticket, db)
+    if current_user.role == "client":
+        _notify_admin_activity("Ticket reabierto", ticket, current_user)
     return _serialize(ticket, current_user.role)
 
 
@@ -448,6 +461,69 @@ def _ensure_github_issue(ticket: Ticket) -> None:
         ticket.github_issue_url    = issue["html_url"]
     except Exception as exc:  # noqa: BLE001 — no abortar la aprobación por GitHub
         print(f"[github] no se pudo crear el issue para {ticket.id}: {exc}")
+
+
+# ─────────────────────────────────────────────
+# Notificación por email al cliente cuando cambia el estado
+# Best-effort (igual que GitHub): no-op si SMTP no está configurado,
+# y cualquier error se loguea sin romper el flujo. Solo avisa en las
+# transiciones que le importan al cliente.
+# ─────────────────────────────────────────────
+NOTIFY_STATUSES = {
+    StatusEnum.inprogress: "en progreso",
+    StatusEnum.completed:  "completado",
+    StatusEnum.rejected:   "rechazado",
+    StatusEnum.reopened:   "reabierto",
+}
+
+
+def _notify_admin_activity(action: str, ticket: Ticket, actor: User, extra: str = "") -> None:
+    """
+    Avisa al admin (dueño de DevFlow) que un CLIENTE hizo algo: creó un ticket,
+    lo reabrió o comentó. Best-effort: no-op si SMTP no está configurado.
+    """
+    if not email_client.is_configured():
+        return
+    subject = f"[DevFlow] {actor.name} ({ticket.client_name}): {action} · {ticket.id}"
+    html = (
+        '<div style="font-family:sans-serif;max-width:520px">'
+        f'<h2 style="margin:0 0 8px">{action} — {ticket.id}</h2>'
+        f'<p style="margin:0 0 4px;color:#334155"><strong>{ticket.title}</strong></p>'
+        f'<p style="margin:0 0 8px;color:#64748b">Cliente: {ticket.client_name} · {actor.name} ({actor.email})</p>'
+        + (f'<div style="background:#f1f5f9;border-radius:8px;padding:10px;color:#334155">{extra}</div>' if extra else '')
+        + '<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0">'
+        '<p style="color:#64748b;font-size:13px">Ingresá a DevFlow para revisarlo.</p>'
+        '</div>'
+    )
+    text = f"{actor.name} ({ticket.client_name}) — {action} en {ticket.id}: {ticket.title}." + (f" {extra}" if extra else "")
+    email_client.notify_admin(subject, html, text=text)
+
+
+def _notify_status_change(ticket: Ticket, db: Session) -> None:
+    if not email_client.is_configured():
+        return
+    label = NOTIFY_STATUSES.get(ticket.status)
+    if not label:
+        return  # transición que no le interesa al cliente
+
+    users = db.query(User).filter(User.client_id == ticket.client_id).all()
+    recipients = [u.email for u in users if u.email]
+    if not recipients:
+        return
+
+    subject = f"[DevFlow] Tu ticket {ticket.id} ahora está {label}"
+    html = (
+        '<div style="font-family:sans-serif;max-width:520px">'
+        f'<h2 style="margin:0 0 8px">Ticket {ticket.id}</h2>'
+        f'<p style="margin:0 0 4px;color:#334155">{ticket.title}</p>'
+        f'<p style="margin:8px 0">Estado: <strong>{label}</strong></p>'
+        '<hr style="border:none;border-top:1px solid #e2e8f0;margin:12px 0">'
+        '<p style="color:#64748b;font-size:13px">Ingresá a DevFlow para ver el detalle del ticket.</p>'
+        '</div>'
+    )
+    text = f"Tu ticket {ticket.id} ({ticket.title}) ahora está {label}. Ingresá a DevFlow para ver el detalle."
+    for r in recipients:
+        email_client.send_email(r, subject, html, text=text)
 
 
 def _sync_github_issue_state(ticket: Ticket, old_status) -> None:

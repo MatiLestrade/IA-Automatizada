@@ -161,6 +161,29 @@ class Ticket(Base):
     github_issue_url    = Column(String,  nullable=True)
 
     client = relationship("Client", back_populates="tickets")
+    comments = relationship(
+        "Comment", back_populates="ticket",
+        cascade="all, delete-orphan", order_by="Comment.created_at",
+    )
+
+
+# ─────────────────────────────────────────────
+# COMMENT — hilo de conversación por ticket
+# Mensajes entre el cliente y soporte. El autor sale del usuario
+# autenticado (no del body). Se borran junto al ticket (cascade).
+# ─────────────────────────────────────────────
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id          = Column(String, primary_key=True)   # uuid
+    ticket_id   = Column(String, ForeignKey("tickets.id"), nullable=False, index=True)
+    author_id   = Column(String, nullable=False)
+    author_name = Column(String, nullable=False)
+    author_role = Column(String, nullable=False)      # "admin" | "client"
+    body        = Column(Text,   nullable=False)
+    created_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    ticket = relationship("Ticket", back_populates="comments")
 
 
 # ─────────────────────────────────────────────
